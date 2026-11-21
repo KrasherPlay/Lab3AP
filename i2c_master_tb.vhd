@@ -2,13 +2,13 @@ library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
 
--- Тестовий стенд (Testbench) для верифікації модуля i2c_master (Варіант 23: I2C / VHDL)
+-- Testbench для функціональної верифікації модуля I2C Master (Варіант 23)
 entity i2c_master_tb is
 end i2c_master_tb;
 
 architecture Behavioral of i2c_master_tb is
 
-    -- Підключення тестованого компонента (DUT - Design Under Test)
+    -- Компонент, що тестується (UUT - Unit Under Test)
     component i2c_master
         Generic (
             INPUT_CLK_FREQ : integer := 50_000_000;
@@ -29,131 +29,132 @@ architecture Behavioral of i2c_master_tb is
         );
     end component;
 
-    -- Сигнали для підключення до DUT
-    signal clk       : STD_LOGIC := '0';
-    signal reset     : STD_LOGIC := '0';
-    signal ena       : STD_LOGIC := '0';
-    signal addr      : STD_LOGIC_VECTOR(6 downto 0) := (others => '0');
-    signal rw        : STD_LOGIC := '0';
-    signal data_wr   : STD_LOGIC_VECTOR(7 downto 0) := (others => '0');
-    signal busy      : STD_LOGIC;
-    signal data_rd   : STD_LOGIC_VECTOR(7 downto 0);
-    signal ack_error : STD_LOGIC;
+    -- Сигнали для підключення до UUT
+    signal clk_sig       : STD_LOGIC := '0';
+    signal reset_sig     : STD_LOGIC := '1';
+    signal ena_sig       : STD_LOGIC := '0';
+    signal addr_sig      : STD_LOGIC_VECTOR(6 downto 0) := (others => '0');
+    signal rw_sig        : STD_LOGIC := '0';
+    signal data_wr_sig   : STD_LOGIC_VECTOR(7 downto 0) := (others => '0');
+    signal busy_sig      : STD_LOGIC;
+    signal data_rd_sig   : STD_LOGIC_VECTOR(7 downto 0);
+    signal ack_error_sig : STD_LOGIC;
+    signal sda_sig       : STD_LOGIC;
+    signal scl_sig       : STD_LOGIC;
 
-    -- Шина I2C з резисторами підтяжки (Pull-up)
-    signal sda       : STD_LOGIC := 'H';
-    signal scl       : STD_LOGIC := 'H';
-    signal slave_sda : STD_LOGIC := 'Z'; -- Лінія керування від імітатора Slave
+    -- Сигнал керування лінією SDA з боку імітованого Slave-пристрою
+    signal slave_sda_drv : STD_LOGIC := 'Z';
 
-    constant CLK_PERIOD : time := 20 ns; -- Тактова частота 50 МГц
+    constant CLK_PERIOD : time := 20 ns; -- Частота 50 МГц
 
 begin
 
-    -- Імітація підтягуючих резисторів (Weak High 'H') та керування від Slave
-    sda <= 'H';
-    scl <= 'H';
-    sda <= slave_sda;
-
-    -- Екземпляр тестованого модуля I2C Master
+    -- Інстанціювання модуля I2C Master
     uut: i2c_master
-        generic map (
+        Generic map (
             INPUT_CLK_FREQ => 50_000_000,
             BUS_CLK_FREQ   => 100_000
         )
-        port map (
-            clk       => clk,
-            reset     => reset,
-            ena       => ena,
-            addr      => addr,
-            rw        => rw,
-            data_wr   => data_wr,
-            busy      => busy,
-            data_rd   => data_rd,
-            ack_error => ack_error,
-            sda       => sda,
-            scl       => scl
+        Port map (
+            clk       => clk_sig,
+            reset     => reset_sig,
+            ena       => ena_sig,
+            addr      => addr_sig,
+            rw        => rw_sig,
+            data_wr   => data_wr_sig,
+            busy      => busy_sig,
+            data_rd   => data_rd_sig,
+            ack_error => ack_error_sig,
+            sda       => sda_sig,
+            scl       => scl_sig
         );
 
-    -- 1. Генерація системного тактового сигналу CLK (50 МГц)[cite: 6]
-    clk_process : process
+    -- Імітація підтягуючих резисторів (Pull-up) шини I2C до високого рівня ('H')
+    sda_sig <= 'H';
+    scl_sig <= 'H';
+    sda_sig <= slave_sda_drv;
+
+    -- Генерація тактового сигналу 50 МГц
+    clk_process: process
     begin
-        clk <= '0';
+        clk_sig <= '0';
         wait for CLK_PERIOD / 2;
-        clk <= '1';
+        clk_sig <= '1';
         wait for CLK_PERIOD / 2;
     end process;
 
-    -- 2. Процес подачі тестових стимулів (перевірка Tx та Rx)[cite: 6]
-    stim_proc : process
+    -- Процес імітації роботи зовнішнього Slave-пристрою (видача ACK та даних для Rx)
+    slave_sim_process: process
+        constant SLAVE_TX_BYTE : STD_LOGIC_VECTOR(7 downto 0) := "00111100"; -- 0x3C для читання
     begin
-        -- Початкове скидання системи
-        reset <= '1';
-        wait for 100 ns;
-        reset <= '0';
-        wait for 200 ns;
-
-        -- ТЕСТ 1: Запис даних (Tx) -> Адреса 0x53 ("1010011"), Дані 0xA5 ("10100101")
-        addr    <= "1010011";
-        rw      <= '0';        -- Режим запису (Write)
-        data_wr <= "10100101"; -- Тестовий байт 0xA5
-        ena     <= '1';
-        wait for 20 us;
-        ena     <= '0';
-
-        -- Очікування завершення транзакції запису
-        wait until busy = '0';
-        wait for 30 us;
-
-        -- ТЕСТ 2: Читання даних (Rx) -> Адреса 0x53 ("1010011"), очікуємо байт 0x3C
-        addr    <= "1010011";
-        rw      <= '1';        -- Режим читання (Read)
-        ena     <= '1';
-        wait for 20 us;
-        ena     <= '0';
-
-        -- Очікування завершення транзакції читання
-        wait until busy = '0';
-        wait for 30 us;
-
-        -- Зупинка симуляції
-        assert false report "Simulation Finished Successfully!" severity failure;
-    end process;
-
-    -- 3. Імітатор ведомого пристрою (I2C Slave) на шині[cite: 6]
-    slave_sim : process
-        variable slave_rx_data : std_logic_vector(7 downto 0) := "00111100"; -- 0x3C для відправки у Master
-    begin
-        slave_sda <= 'Z';
+        slave_sda_drv <= 'Z';
         -- Чекаємо умову START (спад SDA при високому SCL)
-        wait until falling_edge(sda) and (scl /= '0');
+        wait until falling_edge(sda_sig) and (scl_sig /= '0');
 
         -- Пропускаємо 8 тактів адреси + R/W
         for i in 0 to 7 loop
-            wait until falling_edge(scl);
+            wait until falling_edge(scl_sig);
         end loop;
 
-        -- 9-й такт: відправляємо ACK (притягуємо SDA до '0')
-        slave_sda <= '0';
-        wait until falling_edge(scl);
-        slave_sda <= 'Z';
+        -- 9-й такт: Slave видає ACK ('0') на адресу
+        slave_sda_drv <= '0';
+        wait until falling_edge(scl_sig);
+        slave_sda_drv <= 'Z';
 
-        if rw = '0' then
-            -- Режим запису: пропускаємо 8 тактів даних від Master
+        if rw_sig = '0' then
+            -- Режим запису (Tx): пропускаємо 8 біт даних від Master
             for i in 0 to 7 loop
-                wait until falling_edge(scl);
+                wait until falling_edge(scl_sig);
             end loop;
-            -- Відправляємо другий ACK після прийому байта
-            slave_sda <= '0';
-            wait until falling_edge(scl);
-            slave_sda <= 'Z';
+            -- Видаємо ACK ('0') на прийнятий байт даних
+            slave_sda_drv <= '0';
+            wait until falling_edge(scl_sig);
+            slave_sda_drv <= 'Z';
         else
-            -- Режим читання: передаємо 8 біт (0x3C) у Master
+            -- Режим читання (Rx): Slave побітово передає байт SLAVE_TX_BYTE на лінію SDA
             for i in 7 downto 0 loop
-                slave_sda <= slave_rx_data(i);
-                wait until falling_edge(scl);
+                slave_sda_drv <= SLAVE_TX_BYTE(i);
+                wait until falling_edge(scl_sig);
             end loop;
-            slave_sda <= 'Z'; -- Відпускаємо SDA для NACK від Master
+            slave_sda_drv <= 'Z';
         end if;
+    end process;
+
+    -- Головний процес подачі тестових впливів (Stimulus)
+    stimulus_process: process
+    begin
+        -- Початкове скидання системи
+        reset_sig <= '1';
+        wait for 100 ns;
+        reset_sig <= '0';
+        wait for 200 ns;
+
+        -- ТЕСТ 1: Запис (Write) байта 0xA5 (10100101) у Slave з адресою 0x52 (1010010)
+        addr_sig    <= "1010010";
+        rw_sig      <= '0';
+        data_wr_sig <= "10100101";
+        ena_sig     <= '1';
+        wait for 20 us;
+        ena_sig     <= '0';
+
+        -- Очікуємо завершення транзакції запису
+        wait until busy_sig = '0';
+        wait for 50 us;
+
+        -- ТЕСТ 2: Читання (Read) байта від Slave з адресою 0x52 (очікуємо отримати 0x3C)
+        addr_sig    <= "1010010";
+        rw_sig      <= '1';
+        ena_sig     <= '1';
+        wait for 20 us;
+        ena_sig     <= '0';
+
+        -- Очікуємо завершення транзакції читання
+        wait until busy_sig = '0';
+        wait for 50 us;
+
+        -- Завершення симуляції
+        assert false report "Simulation Finished Successfully!" severity failure;
+        wait;
     end process;
 
 end Behavioral;
